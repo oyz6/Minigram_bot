@@ -85,3 +85,8 @@
 
 - https://github.com/oldfriendme/Minigram
 - https://github.com/iawooo/ctt
+
+## 原教程
+
+- 如需获取简单版本配置教程，可访问 [Simple.md](simple.md) 文件
+- 如需图文教程版本配置教程，可访问 [Full.md](full.md) 文件
