@@ -1,3 +1,5 @@
+# 原作者：https://github.com/oldfriendme/Minigram
+
 # Turnstile 验证 + Telegram 私聊转发 Bot 部署文档
 
 ## 所需变量速查
