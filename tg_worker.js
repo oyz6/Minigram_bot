@@ -1,11 +1,11 @@
 let BOT_TOKEN;
 let GROUP_ID;
 let MAX_MESSAGES_PER_MINUTE;
-let VERIFY_URL;        // Turnstile 验证页面 URL
-let VERIFY_SECRET;     // HMAC 签名密钥
+let VERIFY_URL;
+let VERIFY_SECRET;
 
 let lastCleanupTime = 0;
-const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 小时
+const CLEANUP_INTERVAL = 24 * 60 * 60 * 1000;
 let isInitialized = false;
 const processedMessages = new Set();
 const processedCallbacks = new Set();
@@ -47,7 +47,12 @@ const topicIdCache = new LRUCache(1000);
 const userStateCache = new LRUCache(1000);
 const messageRateCache = new LRUCache(1000);
 
-// ========== 新增 HMAC-SHA1 计算函数 ==========
+function randomHex(length) {
+  const bytes = new Uint8Array(length / 2);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function HMac_sum(message, key) {
   const enc = new TextEncoder();
   const keyData = enc.encode(key);
@@ -69,9 +74,8 @@ export default {
     BOT_TOKEN = env.BOT_TOKEN_ENV || null;
     GROUP_ID = env.GROUP_ID_ENV || null;
     MAX_MESSAGES_PER_MINUTE = env.MAX_MESSAGES_PER_MINUTE_ENV ? parseInt(env.MAX_MESSAGES_PER_MINUTE_ENV) : 40;
-    // 新增环境变量
-    VERIFY_URL = env.VERIFY_URL || '';
-    VERIFY_SECRET = env.VERIFY_SECRET || '';
+    VERIFY_URL = env.VERIFY_URL || null;
+    VERIFY_SECRET = env.VERIFY_SECRET || null;
 
     if (!env.D1) {
       return new Response('Server configuration error: D1 database is not bound', { status: 500 });
@@ -213,7 +217,7 @@ export default {
         const columnsResult = await d1.prepare(
           `PRAGMA table_info(${tableName})`
         ).all();
-        
+
         const currentColumns = new Map(
           columnsResult.results.map(col => [col.name, {
             type: col.type,
@@ -255,7 +259,6 @@ export default {
     }
 
     async function cleanExpiredVerificationCodes(d1) {
-      // 保留清理逻辑，但新验证不再使用这些字段，无影响
       const now = Date.now();
       if (now - lastCleanupTime < CLEANUP_INTERVAL) {
         return;
@@ -283,12 +286,12 @@ export default {
         const messageId = update.message.message_id.toString();
         const chatId = update.message.chat.id.toString();
         const messageKey = `${chatId}:${messageId}`;
-        
+
         if (processedMessages.has(messageKey)) {
           return;
         }
         processedMessages.add(messageKey);
-        
+
         if (processedMessages.size > 10000) {
           processedMessages.clear();
         }
@@ -299,13 +302,20 @@ export default {
       }
     }
 
-    // ========== 核心修改：onMessage 验证流程 ==========
     async function onMessage(message) {
       const chatId = message.chat.id.toString();
       const text = message.text || '';
       const messageId = message.message_id;
 
-      // 群组内消息处理（保持不变）
+      // 处理 Web App 回传的验证数据
+      if (message.web_app_data && message.web_app_data.data) {
+        const webAppText = message.web_app_data.data;
+        if (webAppText.startsWith('/checkin ')) {
+          await handleCheckinVerification(chatId, webAppText);
+          return;
+        }
+      }
+
       if (chatId === GROUP_ID) {
         const topicId = message.message_thread_id;
         if (topicId) {
@@ -325,7 +335,6 @@ export default {
         return;
       }
 
-      // 私聊用户状态
       let userState = userStateCache.get(chatId);
       if (userState === undefined) {
         userState = await env.D1.prepare('SELECT is_blocked, is_first_verification, is_verified, verified_expiry, is_verifying FROM user_states WHERE chat_id = ?')
@@ -348,39 +357,41 @@ export default {
       const verificationEnabled = (await getSetting('verification_enabled', env.D1)) === 'true';
 
       if (!verificationEnabled) {
-        // 验证码关闭时，所有用户直接处理消息
-        // 后续处理消息转发逻辑
+        // 验证关闭，直接通过
       } else {
         const nowSeconds = Math.floor(Date.now() / 1000);
         const isVerified = userState.is_verified && userState.verified_expiry && nowSeconds < userState.verified_expiry;
-        const isFirstVerification = userState.is_first_verification;
-        const isRateLimited = await checkMessageRate(chatId);
 
-        // 如果未验证 或 (频率受限且不是首次验证) -> 需要验证
-        if (!isVerified || (isRateLimited && !isFirstVerification)) {
-          // 处理 /checkin 命令（Turnstile 验证结果）
+        if (!isVerified) {
+          // 处理 /checkin 文本验证
           if (text.startsWith('/checkin ')) {
-            await handleCheckin(chatId, text);
+            await handleCheckinVerification(chatId, text);
             return;
           }
 
-          // /start 命令：生成验证链接
-          if (text === '/start') {
-            if (await checkStartCommandRate(chatId)) {
-              await sendMessageToUser(chatId, "您发送 /start 命令过于频繁，请稍后再试！");
-              return;
-            }
-            await sendVerificationLink(chatId);
-            return;
-          }
-
-          // 其它未验证消息：提示用户先验证
-          await sendMessageToUser(chatId, "请先完成人机验证，发送 /start 获取验证链接。");
+          // 未验证用户发任何消息，直接发送验证按钮
+          await handleVerification(chatId);
           return;
+        }
+
+        // 已验证用户才检查频率限制
+        const isFirstVerification = userState.is_first_verification;
+        if (!isFirstVerification) {
+          const isRateLimited = await checkMessageRate(chatId);
+          if (isRateLimited) {
+            await env.D1.prepare('UPDATE user_states SET is_verified = FALSE, is_verifying = FALSE WHERE chat_id = ?')
+              .bind(chatId)
+              .run();
+            userState.is_verified = false;
+            userState.is_verifying = false;
+            userStateCache.set(chatId, userState);
+            await sendMessageToUser(chatId, '您的消息发送过于频繁，请重新完成验证。');
+            await handleVerification(chatId);
+            return;
+          }
         }
       }
 
-      // ----- 已验证用户的消息处理（原有逻辑）-----
       if (text === '/start') {
         if (await checkStartCommandRate(chatId)) {
           await sendMessageToUser(chatId, "您发送 /start 命令过于频繁，请稍后再试！");
@@ -391,6 +402,12 @@ export default {
         await sendMessageToUser(chatId, `${successMessage}\n你好，欢迎使用私聊机器人，现在发送信息吧！`);
         const userInfo = await getUserInfo(chatId);
         await ensureUserTopic(chatId, userInfo);
+        return;
+      }
+
+      // 已验证用户发送 /checkin 时忽略
+      if (text.startsWith('/checkin ')) {
+        await sendMessageToUser(chatId, '您已通过验证，无需再次验证。');
         return;
       }
 
@@ -428,110 +445,177 @@ export default {
       }
     }
 
-    // ========== 生成验证链接并发送 ==========
-    async function sendVerificationLink(chatId) {
-      // 生成随机 12 位 hex
-      const randomBytes = new Uint8Array(6);
-      crypto.getRandomValues(randomBytes);
-      const randomHex = Array.from(randomBytes, b => b.toString(16).padStart(2, '0')).join('');
-      
-      // 时间窗口（300秒）
-      const unixtime = Math.floor(Date.now() / 1000 / 300);
-      const timestamp = unixtime.toString();
-      
-      // token 格式：12位hex + uid + '_' + timestamp
-      const token = randomHex + chatId + '_' + timestamp;
-      
-      const verifyMsg = `请点击以下链接完成人机验证：\n${VERIFY_URL}?token=${encodeURIComponent(token)}\n\n完成验证后，复制页面显示的 /checkin 命令发送给我。`;
-      
-      // 更新数据库状态为“验证中”（is_verifying 保留用途）
-      await env.D1.prepare('UPDATE user_states SET is_verifying = ? WHERE chat_id = ?')
-        .bind(true, chatId)
-        .run();
-      
-      // 更新缓存
-      let state = userStateCache.get(chatId);
-      if (state) {
-        state.is_verifying = true;
-        userStateCache.set(chatId, state);
-      }
-      
-      await sendMessageToUser(chatId, verifyMsg);
-    }
-
-    // ========== 处理 /checkin 验证 ==========
-    async function handleCheckin(chatId, text) {
+    async function handleCheckinVerification(chatId, text) {
       const result = text.substring('/checkin '.length).trim();
+
       if (result.length < 12 || result.length > 256) {
-        await sendMessageToUser(chatId, '验证失败，格式错误。');
+        await sendMessageToUser(chatId, '验证码格式错误，请重新验证。');
         return;
       }
-      
+
       const parts = result.split('_');
       if (parts.length !== 3) {
-        await sendMessageToUser(chatId, '验证失败，格式错误。');
+        await sendMessageToUser(chatId, '验证码格式错误，请重新验证。');
         return;
       }
-      
-      // 检查时间窗口
-      const currentTimestamp = Math.floor(Date.now() / 1000 / 300).toString();
-      if (parts[1] !== currentTimestamp) {
-        await sendMessageToUser(chatId, '验证超时，请重新发送 /start 获取新链接。');
+
+      // 允许当前窗口和前一个窗口
+      const Unixtime = Math.floor(Date.now() / 1000 / 300);
+      const timestamp = Unixtime + '';
+      const prevTimestamp = (Unixtime - 1) + '';
+
+      if (parts[1] !== timestamp && parts[1] !== prevTimestamp) {
+        await sendMessageToUser(chatId, '验证码已过期，请重新获取验证链接。');
+        await env.D1.prepare('UPDATE user_states SET is_verifying = FALSE WHERE chat_id = ?')
+          .bind(chatId)
+          .run();
+        let userState = userStateCache.get(chatId);
+        if (userState) {
+          userState.is_verifying = false;
+          userStateCache.set(chatId, userState);
+        }
+        await handleVerification(chatId);
         return;
       }
-      
-      // 第一部分应为 12 位 hex
+
       if (parts[0].length !== 12) {
-        await sendMessageToUser(chatId, '验证失败，数据错误。');
+        await sendMessageToUser(chatId, '验证码格式错误，请重新验证。');
         return;
       }
-      
-      // 重新构建原始字符串：12hex + uid + '_' + timestamp
-      const origSum = parts[0] + chatId + '_' + parts[1];
-      const mySum = await HMac_sum(origSum, VERIFY_SECRET);
-      
-      if (mySum !== parts[2]) {
-        await sendMessageToUser(chatId, '验证失败，签名不匹配。');
+
+      // 使用验证码中携带的原始 timestamp 来构造 HMAC
+      const tokenTimestamp = parts[1];
+      const orig_token = parts[0] + chatId + '_' + tokenTimestamp;
+      const expectedHmac = await HMac_sum(orig_token, VERIFY_SECRET);
+
+      if (expectedHmac === parts[2]) {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const verifiedExpiry = nowSeconds + 3600 * 24;
+
+        await env.D1.prepare('UPDATE user_states SET is_verified = ?, verified_expiry = ?, verification_code = NULL, code_expiry = NULL, is_first_verification = ?, is_verifying = ? WHERE chat_id = ?')
+          .bind(true, verifiedExpiry, false, false, chatId)
+          .run();
+
+        let userState = userStateCache.get(chatId);
+        if (userState) {
+          userState.is_verified = true;
+          userState.verified_expiry = verifiedExpiry;
+          userState.verification_code = null;
+          userState.code_expiry = null;
+          userState.is_first_verification = false;
+          userState.is_verifying = false;
+        } else {
+          userState = { is_verified: true, verified_expiry: verifiedExpiry, verification_code: null, code_expiry: null, is_first_verification: false, is_verifying: false, is_blocked: false };
+        }
+        userStateCache.set(chatId, userState);
+
+        // 重置消息频率
+        const nowMs = Date.now();
+        await env.D1.prepare('UPDATE message_rates SET message_count = 0, window_start = ? WHERE chat_id = ?')
+          .bind(nowMs, chatId)
+          .run();
+        messageRateCache.set(chatId, { message_count: 0, window_start: nowMs, start_count: 0, start_window_start: nowMs });
+
+        // 发送成功消息并移除键盘按钮
+        const successMessage = await getVerificationSuccessMessage();
+        await fetchWithRetry(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: `${successMessage}\n你好，欢迎使用私聊机器人！现在可以发送消息了。`,
+            reply_markup: { remove_keyboard: true }
+          })
+        });
+
+        const userInfo = await getUserInfo(chatId);
+        await ensureUserTopic(chatId, userInfo);
+      } else {
+        await sendMessageToUser(chatId, '验证失败，请重新获取验证链接并完成验证。');
+        await env.D1.prepare('UPDATE user_states SET is_verifying = FALSE WHERE chat_id = ?')
+          .bind(chatId)
+          .run();
+        let userState = userStateCache.get(chatId);
+        if (userState) {
+          userState.is_verifying = false;
+          userStateCache.set(chatId, userState);
+        }
+        await handleVerification(chatId);
+      }
+    }
+
+    async function handleVerification(chatId) {
+      if (!VERIFY_URL || !VERIFY_SECRET) {
+        await sendMessageToUser(chatId, '验证服务未配置，请联系管理员。');
         return;
       }
-      
-      // 验证成功
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      const verifiedExpiry = nowSeconds + 3600 * 24; // 24小时有效
-      
-      await env.D1.prepare(
-        'UPDATE user_states SET is_verified = ?, verified_expiry = ?, verification_code = NULL, code_expiry = NULL, last_verification_message_id = NULL, is_first_verification = ?, is_verifying = ? WHERE chat_id = ?'
-      ).bind(true, verifiedExpiry, false, false, chatId).run();
-      
-      // 更新缓存
-      let state = userStateCache.get(chatId);
-      if (state) {
-        state.is_verified = true;
-        state.verified_expiry = verifiedExpiry;
-        state.is_first_verification = false;
-        state.is_verifying = false;
-        state.verification_code = null;
-        state.code_expiry = null;
-        state.last_verification_message_id = null;
-        userStateCache.set(chatId, state);
+
+      try {
+        let userState = userStateCache.get(chatId);
+        if (userState === undefined) {
+          userState = await env.D1.prepare('SELECT is_blocked, is_first_verification, is_verified, verified_expiry, is_verifying FROM user_states WHERE chat_id = ?')
+            .bind(chatId)
+            .first();
+          if (!userState) {
+            userState = { is_blocked: false, is_first_verification: true, is_verified: false, verified_expiry: null, is_verifying: false };
+          }
+          userStateCache.set(chatId, userState);
+        }
+
+        // 生成验证 token: randomHex(12) + chatId + '_' + timestamp
+        const Unixtime = Math.floor(Date.now() / 1000 / 300);
+        const timestamp = Unixtime + '';
+        const token = randomHex(12) + chatId + '_' + timestamp;
+
+        const verifyLink = `${VERIFY_URL}?token=${encodeURIComponent(token)}`;
+
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const codeExpiry = nowSeconds + 300;
+
+        userState.is_verifying = true;
+        userState.code_expiry = codeExpiry;
+        userStateCache.set(chatId, userState);
+
+        await env.D1.prepare('UPDATE user_states SET is_verifying = ?, code_expiry = ? WHERE chat_id = ?')
+          .bind(true, codeExpiry, chatId)
+          .run();
+
+        // 使用 ReplyKeyboardMarkup 让 sendData 生效
+        const response = await fetchWithRetry(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: '🔐 请点击下方按钮完成人机验证（5分钟内有效）\n\n如按钮无法使用，请复制以下链接在浏览器中打开：\n' + verifyLink,
+            reply_markup: {
+              keyboard: [[
+                {
+                  text: '✅ 点击验证',
+                  web_app: { url: verifyLink }
+                }
+              ]],
+              resize_keyboard: true,
+              one_time_keyboard: true
+            }
+          })
+        });
+
+        const data = await response.json();
+        if (!data.ok) {
+          throw new Error(`发送验证消息失败: ${data.description}`);
+        }
+      } catch (error) {
+        console.error(`发送验证链接失败: ${error.message}`);
+        await env.D1.prepare('UPDATE user_states SET is_verifying = FALSE WHERE chat_id = ?')
+          .bind(chatId)
+          .run();
+        let currentState = userStateCache.get(chatId);
+        if (currentState) {
+          currentState.is_verifying = false;
+          userStateCache.set(chatId, currentState);
+        }
+        await sendMessageToUser(chatId, '发送验证失败，请发送任意消息重试。');
       }
-      
-      // 重置消息速率
-      await env.D1.prepare('UPDATE message_rates SET message_count = ?, window_start = ? WHERE chat_id = ?')
-        .bind(0, nowSeconds * 1000, chatId).run();
-      let rateData = messageRateCache.get(chatId);
-      if (rateData) {
-        rateData.message_count = 0;
-        rateData.window_start = nowSeconds * 1000;
-        messageRateCache.set(chatId, rateData);
-      }
-      
-      const successMessage = await getVerificationSuccessMessage();
-      await sendMessageToUser(chatId, successMessage);
-      
-      // 创建话题
-      const userInfo = await getUserInfo(chatId);
-      await ensureUserTopic(chatId, userInfo);
     }
 
     async function validateTopic(topicId) {
@@ -766,7 +850,6 @@ export default {
       if (key === 'verification_enabled') {
         settingsCache.set('verification_enabled', value === 'true');
         if (value === 'false') {
-          // 关闭验证时，将所有用户设为已验证（24小时有效）
           const nowSeconds = Math.floor(Date.now() / 1000);
           const verifiedExpiry = nowSeconds + 3600 * 24;
           await env.D1.prepare('UPDATE user_states SET is_verified = ?, verified_expiry = ?, is_verifying = ?, verification_code = NULL, code_expiry = NULL, is_first_verification = ? WHERE chat_id NOT IN (SELECT chat_id FROM user_states WHERE is_blocked = TRUE)')
@@ -779,7 +862,6 @@ export default {
       }
     }
 
-    // ========== 回调处理（管理操作）==========
     async function onCallbackQuery(callbackQuery) {
       const chatId = callbackQuery.message.chat.id.toString();
       const topicId = callbackQuery.message.message_thread_id;
@@ -827,7 +909,6 @@ export default {
         return;
       }
 
-      // 管理操作（保持不变）
       if (action === 'block') {
         let state = userStateCache.get(privateChatId);
         if (state === undefined) {
@@ -864,7 +945,7 @@ export default {
         const blockedUsers = await env.D1.prepare('SELECT chat_id FROM user_states WHERE is_blocked = ?')
           .bind(true)
           .all();
-        const blockList = blockedUsers.results.length > 0 
+        const blockList = blockedUsers.results.length > 0
           ? blockedUsers.results.map(row => row.chat_id).join('\n')
           : '当前没有被拉黑的用户。';
         await sendMessageToTopic(topicId, `黑名单列表：\n${blockList}`);
@@ -882,7 +963,7 @@ export default {
           env.D1.prepare('DELETE FROM message_rates WHERE chat_id = ?').bind(privateChatId),
           env.D1.prepare('DELETE FROM chat_topic_mappings WHERE chat_id = ?').bind(privateChatId)
         ]);
-        await sendMessageToTopic(topicId, `用户 ${privateChatId} 的所有数据已删除。`);
+        await sendMessageToTopic(topicId, `用户 ${privateChatId} 的状态、消息记录和话题映射已删除，用户需重新发起会话。`);
       } else {
         await sendMessageToTopic(topicId, `未知操作：${action}`);
       }
@@ -976,8 +1057,8 @@ export default {
       const notificationContent = await getNotificationContent();
       const pinnedMessage = `昵称: ${nickname}\n用户名: @${userName}\nUserID: ${userId}\n发起时间: ${formattedTime}\n\n${notificationContent}`;
       const messageResponse = await sendMessageToTopic(topicId, pinnedMessage);
-      const messageId = messageResponse.result.message_id;
-      await pinMessage(topicId, messageId);
+      const msgId = messageResponse.result.message_id;
+      await pinMessage(topicId, msgId);
 
       return topicId;
     }
