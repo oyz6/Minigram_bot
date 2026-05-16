@@ -1,4 +1,4 @@
-# Turnstile 验证 + Telegram 私聊转发 Bot 部署文档
+# Turnstile 验证 + Telegram 私聊 Bot + 话题模式
 
 ## 所需变量速查
 
