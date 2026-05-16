@@ -1,10 +1,6 @@
-var CAPTCHA_SECRET_KEY = "";
-var VERIFY_SECRET = "";
-var CAPTCHA_SITE_KEY = "";
+const htmlhead = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Captcha verify</title><script src="https://telegram.org/js/telegram-web-app.js"></script><style>body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto;background:linear-gradient(135deg,#f0f4ff 0%,#e8eeff 100%);display:flex;align-items:center;justify-content:center;min-height:100vh;}form{width:100%;max-width:420px;background:#fff;border:1px solid #e8eaf0;border-radius:14px;padding:28px;box-shadow:0 20px 40px rgba(0,0,0,.15);}form h2{margin:0 0 14px;font-size:1.75rem;font-weight:700;text-align:center;}.field{margin-bottom:14px;}#status{text-align:center;font-size:1rem;color:#6b7280;margin-top:14px;}#codeDisplay{width:100%;padding:12px 14px;font-size:0.9rem;border-radius:10px;border:1px solid #e5e7eb;background:#f8f9fb;color:#374151;outline:none;display:none;word-break:break-all;}.copy-btn{width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;cursor:pointer;background:#22c55e;color:#fff;margin-top:10px;display:none;}.copy-btn:hover{background:#16a34a}.send-btn{width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;cursor:pointer;background:#6366f1;color:#fff;margin-top:10px;display:none;}.send-btn:hover{background:#4f46e5}</style></head><body>`;
 
-const htmlhead = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Captcha verify</title><style>body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto;color:var(--text);background:linear-gradient(135deg,var(--bg-start) 0%,var(--bg-end) 100%);display:flex;align-items:center;justify-content:center;min-height:100vh;}form{width:100%;max-width:420px;background:var(--card);border:1px solid #e8eaf0;border-radius:14px;padding:28px;box-shadow:0 20px 40px rgba(0,0,0,.15);backdrop-filter:saturate(1.1) blur(2px);}form h2{margin:0 0 14px;font-size:1.75rem;font-weight:700;text-align:center;letter-spacing:.2px;}.field{margin-bottom:14px;}#token{width:100%;padding:12px 14px;font-size:1rem;border-radius:10px;border:1px solid #e5e7eb;background:#f8f9fb;color:#374151;outline:none;}#token:focus{border-color:#93c5fd;box-shadow:0 0 0 4px var(--ring);}button[type="submit"]{width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;color:#fff;cursor:pointer;background:#6366f1;transition:transform .2s ease,box-shadow .2s ease;box-shadow:0 6px 14px rgba(99,102,241,.4);}button[type="submit"]:hover{transform:translateY(-1px);box-shadow:0 8px 16px rgba(99,102,241,.5);}button[type="submit"]:focus{outline:none;box-shadow:0 0 0 4px rgba(99,102,241,.35);}.copy-btn{width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;cursor:pointer;background:#22c55e;color:#fff;transition:.2s}.copy-btn:hover{background:#16a34a}</style></head><body>`
-
-async function HMac_sum(message,key) {
+async function HMac_sum(message, key) {
   const enc = new TextEncoder();
   const keyData = enc.encode(key);
   const msgData = enc.encode(message);
@@ -20,82 +16,162 @@ async function HMac_sum(message,key) {
   return btoa(String.fromCharCode(...bytes));
 }
 
-async function handlePost(request) {
-    const body = await request.formData();
-    const captcha = body.get('cf-turnstile-response');
-    const token = body.get('token');
-    const ip = request.headers.get('CF-Connecting-IP');
+async function handlePost(request, env) {
+  const body = await request.formData();
+  const captcha = body.get('cf-turnstile-response');
+  const token = body.get('token');
+  const ip = request.headers.get('CF-Connecting-IP');
 
-    let formData = new FormData();
-    formData.append('secret', CAPTCHA_SECRET_KEY);
-    formData.append('response', captcha);
-    formData.append('remoteip', ip);
+  let formData = new FormData();
+  formData.append('secret', env.CAPTCHA_SECRET_KEY);
+  formData.append('response', captcha);
+  formData.append('remoteip', ip);
 
-    const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-        body: formData,
-        method: 'POST',
+  const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+    body: formData,
+    method: 'POST',
+  });
+
+  const res = await result.json();
+  if (!res.success) {
+    return new Response(JSON.stringify({ ok: false, error: "Captcha fail" }), {
+      headers: { 'Content-Type': 'application/json' },
     });
+  }
+  if (!token || token.length < 16 || token.length > 256) {
+    return new Response(JSON.stringify({ ok: false, error: "Token is err" }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
-    const res = await result.json();
-    if (!res.success) {
-        return new Response("Captcha fail");
-    }
-    if (!token){
-         return new Response("Token is null");
-    }
-    if ((token.length < 16)||(token.length >256)) {
-        return new Response("Token is err");
-    }
-    let Unixtime = Math.floor(Date.now() / 1000 / 300);
-    let timestamp = Unixtime + ''
-    let parts = token.split("_");
-    if (parts.length !== 2) {
-        return new Response("Token is err");
-    }
-    if (parts[1] !== timestamp) {
-        return new Response("session Expire");
-    }
+  let parts = token.split("_");
+  if (parts.length !== 2) {
+    return new Response(JSON.stringify({ ok: false, error: "Token is err" }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
-    if (parts[0].length<14){
-        return new Response("Token is err");
-    }
+  let Unixtime = Math.floor(Date.now() / 1000 / 300);
+  let timestamp = Unixtime + '';
+  let prevTimestamp = (Unixtime - 1) + '';
 
-    let mySum = await HMac_sum(token, VERIFY_SECRET);
+  if (parts[1] !== timestamp && parts[1] !== prevTimestamp) {
+    return new Response(JSON.stringify({ ok: false, error: "session Expire" }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 
-    let resp = parts[0].slice(0, 12) +'_'+ timestamp +'_'+ mySum
-    let htmlbody = htmlhead + `<form><h2>Your code</h2><div class="field"><input type="text" id="token" name="token" readonly value="/checkin ${resp}" aria-label="Token"></div><button type="button" class="copy-btn" onclick="copyTk()">copy</button></form><script>function copyTk() {const tokenInput = document.getElementById('token');navigator.clipboard.writeText(tokenInput.value).then(() => {const btn = document.querySelector('.copy-btn');btn.textContent = 'copied ✅';setTimeout(() => {btn.textContent = 'copy';}, 1500);});}</script></body></html>`
-    return new Response(htmlbody, {
-            headers: {
-                'Content-Type': 'text/html',
-            },
-        });
+  if (parts[0].length < 14) {
+    return new Response(JSON.stringify({ ok: false, error: "Token is err" }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  let tokenTimestamp = parts[1];
+  let mySum = await HMac_sum(token, env.VERIFY_SECRET);
+  let resp = parts[0].slice(0, 12) + '_' + tokenTimestamp + '_' + mySum;
+
+  return new Response(JSON.stringify({ ok: true, code: `/checkin ${resp}` }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
+function handleGet(request, env) {
+  const url = new URL(request.url);
+  let token = url.searchParams.get('token');
+
+  if (!token) {
+    return new Response("Token is null");
+  }
+  if (token.length < 12 || token.length > 256) {
+    return new Response("Token is err");
+  }
+
+  let eToken = encodeURIComponent(token);
+
+  let body = htmlhead + `<form id="vform" aria-label="Token Login"><h2>人机验证</h2><div class="field"><input type="hidden" id="token" name="token" value="${eToken}"></div><div class="field"><div class="cf-turnstile" data-sitekey="${env.CAPTCHA_SITE_KEY}" data-theme="light" data-callback="onTurnstileSuccess"></div></div><p id="status">请完成上方验证...</p><input type="text" id="codeDisplay" readonly aria-label="验证码"><button type="button" class="send-btn" id="sendBtn" onclick="sendToBot()">发送验证码到 Bot</button><button type="button" class="copy-btn" id="copyBtn" onclick="copyCode()">复制验证码</button></form>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
+<script>
+let verifyCode = '';
+const isTgWebApp = !!(window.Telegram && window.Telegram.WebApp);
+
+if (isTgWebApp) {
+  window.Telegram.WebApp.ready();
+  window.Telegram.WebApp.expand();
+}
+
+function onTurnstileSuccess(turnstileToken) {
+  document.getElementById('status').textContent = '验证中...';
+  const formData = new FormData();
+  formData.append('cf-turnstile-response', turnstileToken);
+  formData.append('token', decodeURIComponent(document.getElementById('token').value));
+
+  fetch(window.location.href, {
+    method: 'POST',
+    body: formData
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      verifyCode = data.code;
+      if (isTgWebApp) {
+        try {
+          window.Telegram.WebApp.sendData(verifyCode);
+          document.getElementById('status').textContent = '✅ 验证成功，窗口即将关闭...';
+          setTimeout(() => { try { window.Telegram.WebApp.close(); } catch(e){} }, 1000);
+        } catch(e) {
+          document.getElementById('status').textContent = '✅ 验证成功，请点击下方按钮发送验证码';
+          document.getElementById('sendBtn').style.display = 'block';
+          document.getElementById('codeDisplay').style.display = 'block';
+          document.getElementById('codeDisplay').value = verifyCode;
+          document.getElementById('copyBtn').style.display = 'block';
+        }
+      } else {
+        document.getElementById('status').textContent = '✅ 验证成功，请复制下方验证码发送给 Bot';
+        document.getElementById('codeDisplay').style.display = 'block';
+        document.getElementById('codeDisplay').value = verifyCode;
+        document.getElementById('copyBtn').style.display = 'block';
+      }
+    } else {
+      document.getElementById('status').textContent = '❌ ' + (data.error || '验证失败，请刷新重试');
+    }
+  })
+  .catch(() => {
+    document.getElementById('status').textContent = '❌ 网络错误，请重试';
+  });
+}
+
+function sendToBot() {
+  if (isTgWebApp && verifyCode) {
+    try {
+      window.Telegram.WebApp.sendData(verifyCode);
+      document.getElementById('status').textContent = '✅ 已发送，窗口即将关闭...';
+      setTimeout(() => { try { window.Telegram.WebApp.close(); } catch(e){} }, 1000);
+    } catch(e) {
+      document.getElementById('status').textContent = '发送失败，请手动复制验证码发送给 Bot';
+    }
+  }
+}
+
+function copyCode() {
+  navigator.clipboard.writeText(verifyCode).then(() => {
+    document.getElementById('copyBtn').textContent = '已复制 ✅';
+    setTimeout(() => { document.getElementById('copyBtn').textContent = '复制验证码'; }, 1500);
+  });
+}
+</script></body></html>`;
+
+  return new Response(body, {
+    headers: { 'Content-Type': 'text/html' },
+  });
+}
+
+// Worker 入口
 export default {
-    async fetch(request, env, ctx) {
-        CAPTCHA_SECRET_KEY = env.CAPTCHA_SECRET_KEY;
-        VERIFY_SECRET = env.VERIFY_SECRET;
-        CAPTCHA_SITE_KEY = env.CAPTCHA_SITE_KEY;
-
-        if (request.method === 'POST') {
-            return await handlePost(request);
-        }
-
-        const url = new URL(request.url);
-        let token = url.searchParams.get('token');
-        if (!token){
-         return new Response("Token is null");
-        }
-        if ((token.length < 12)||(token.length >256)) {
-        return new Response("Token is err");
-        }
-        let eToken = encodeURIComponent(token);
-        let body = htmlhead + `<form method="POST" action="" aria-label="Token Login"><h2>Captcha verify</h2><div class="field"><input type="text" id="token" name="token" readonly value="${eToken}" aria-label="Token"></div><div class="field"><div class="cf-turnstile" data-sitekey="${CAPTCHA_SITE_KEY}" data-theme="light"></div></div><button type="submit">checking</button></form><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script></body></html>`;
-
-        return new Response(body, {
-            headers: {
-                'Content-Type': 'text/html',
-            },
-        });
-    },
+  async fetch(request, env, ctx) {
+    if (request.method === 'POST') {
+      return await handlePost(request, env);
+    }
+    return handleGet(request, env);
+  }
 };
