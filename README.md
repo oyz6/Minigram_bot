@@ -81,4 +81,7 @@
 - 所有变量名均已大写，与 Worker 环境变量严格一致。
 - 若用户在 Telegram 内直接点击验证按钮完成 Turnstile，验证码将通过 Web App `sendData` 自动回传，体验更流畅；若自动发送失败，界面会提供手动发送按钮作为备用。
 
-## 原作者：https://github.com/oldfriendme/Minigram
+## 原作者
+
+- https://github.com/oldfriendme/Minigram
+- https://github.com/iawooo/ctt
