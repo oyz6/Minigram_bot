@@ -1,5 +1,3 @@
-# 原作者：https://github.com/oldfriendme/Minigram
-
 # Turnstile 验证 + Telegram 私聊转发 Bot 部署文档
 
 ## 所需变量速查
@@ -32,7 +30,7 @@
 ### 2. 部署验证页面 Worker（`captcha.js`）
 
 1. 在 Cloudflare Workers 中创建新 Worker。
-2. 粘贴 [修改后的 `captcha.js` 代码](#验证页面-worker-完整代码)（变量已全大写）。
+2. 粘贴最新的 [`captcha.js` 代码](#验证页面-worker-完整代码)（变量已全大写）。
 3. 在 Worker 设置 → **Variables** 中添加：
    - `CAPTCHA_SECRET_KEY` → Turnstile 后端密钥
    - `CAPTCHA_SITE_KEY` → Turnstile 前端密钥
@@ -41,7 +39,7 @@
 
 ### 3. 部署主 Bot Worker
 
-1. 创建另一个 Worker，粘贴**主 Bot 整合代码**（上一轮已提供的完整代码）。
+1. 创建另一个 Worker，粘贴最新的**主 Bot 整合代码**（`tg_worker.js`）。
 2. 绑定 D1 数据库：
    - 在 Cloudflare 控制台创建 D1 数据库。
    - 在 Worker 设置 → **D1 数据库绑定** 中，添加绑定，变量名设为 `D1`，选择你创建的数据库。
@@ -58,9 +56,17 @@
 1. 访问 `https://你的主Bot域名/checkTables`，返回 `Database tables checked and repaired` 即成功。
 2. 访问 `https://你的主Bot域名/registerWebhook`，返回 `Webhook set successfully` 完成。
 
+> **提示**：主 Bot Worker 在首次收到请求时会自动检查表结构并注册 Webhook，上述步骤为手动确认方式，你可根据需要执行。
+
 ### 5. 使用
 
-- **用户侧**：私聊 Bot 发送 `/start` → 点击验证链接 → 完成 Turnstile → 复制 `/checkin ...` 命令发给 Bot → 验证通过，即可正常聊天。
+- **用户侧**：
+  1. 私聊 Bot 发送任意消息（或 `/start`），Bot 会发送验证链接。
+  2. 点击按钮打开验证页面，完成 Turnstile 人机验证。
+     - 如果在 **Telegram 内置浏览器**中打开，验证成功后验证码会**自动发送给 Bot**，无需额外操作。
+     - 如果在普通浏览器中打开，验证成功后会显示 `/checkin ...` 命令，复制并发送给 Bot 即可完成验证。
+  3. 验证通过后即可正常聊天，所有私聊消息将转发至群组中的专属话题。
+
 - **管理侧**：在群组任意用户话题内发送 `/admin` 调出管理面板（拉黑/解封、开关验证、查看黑名单、删除用户等）。
 - **重置用户**：在话题内发送 `/reset_user <chat_id>`（管理员可用）。
 
@@ -69,9 +75,10 @@
 ## 注意事项
 
 - 群组必须开启**话题模式**，否则无法自动创建用户话题。
-- 验证有效期默认 **24 小时**，过期后需重新验证。
+- 验证有效期默认 **24 小时**，过期后需重新验证。验证码本身有效期为 **5 分钟**。
 - 关闭验证功能（通过管理面板）后，所有用户直接放行。
-- D1 数据库表结构会自动创建，无需手动建表。
+- D1 数据库表结构会在首次请求或手动访问 `/checkTables` 时自动创建，无需手动建表。
 - 所有变量名均已大写，与 Worker 环境变量严格一致。
+- 若用户在 Telegram 内直接点击验证按钮完成 Turnstile，验证码将通过 Web App `sendData` 自动回传，体验更流畅；若自动发送失败，界面会提供手动发送按钮作为备用。
 
----
+## 原作者：https://github.com/oldfriendme/Minigram
