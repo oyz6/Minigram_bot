@@ -46,16 +46,16 @@
 ### 2. 部署验证页面 Worker（`captcha.js`）
 
 1. 在 Cloudflare Workers 中创建新 Worker。
-2. 粘贴最新的 [`captcha.js` 代码](#验证页面-worker-完整代码)（变量已全大写）。
+2. 粘贴最新的 [`captcha.js` 代码](./captcha.js)。
 3. 在 Worker 设置 → **Variables** 中添加：
    - `CAPTCHA_SECRET_KEY` → Turnstile 后端密钥
    - `CAPTCHA_SITE_KEY` → Turnstile 前端密钥
    - `VERIFY_SECRET` → 步骤 1 的 HMAC 密钥
 4. 部署，记住 Worker 域名（例如 `verify.example.com`），这就是 `VERIFY_URL`。
 
-### 3. 部署主 Bot Worker
+### 3. 部署主 Bot Worker（`tg_worker.js`）
 
-1. 创建另一个 Worker，粘贴最新的**主 Bot 整合代码**（`tg_worker.js`）。
+1. 创建另一个 Worker，粘贴最新的**主 Bot 整合代码**[`tg_worker.js` 代码](./tg_worker.js)。
 2. 绑定 D1 数据库：
    - 在 Cloudflare 控制台创建 D1 数据库。
    - 在 Worker 设置 → **D1 数据库绑定** 中，添加绑定，变量名设为 `D1`，选择你创建的数据库。
