@@ -50,6 +50,7 @@
 3. 在 Worker 设置 → **Variables** 中添加：
    - `CAPTCHA_SECRET_KEY` → Turnstile 后端密钥
    - `CAPTCHA_SITE_KEY` → Turnstile 前端密钥
+   - `BOT_USERNAME` → 你的 Telegram 机器人名字（不带 `@`）
    - `VERIFY_SECRET` → 步骤 1 的 HMAC 密钥
 4. 部署，记住 Worker 域名（例如 `verify.example.com`），这就是 `VERIFY_URL`。
 
