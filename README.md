@@ -2,17 +2,20 @@
 
 ## 所需变量速查
 
-| 环境变量 | 所属 Worker | 示例值 | 说明 |
+| 环境变量 | 验证页面 Worker | 示例值 | 说明 |
 |----------|-------------|--------|------|
 | `CAPTCHA_SECRET_KEY` | 验证页面 Worker | `0x3...FF` | Cloudflare Turnstile 后端密钥 |
 | `CAPTCHA_SITE_KEY` | 验证页面 Worker | `3x0...FF` | Cloudflare Turnstile 前端密钥 |
 | `BOT_USERNAME` | 验证页面 Worker | `my_cool_bot` | Bot 用户名 不带 @ |
-| `VERIFY_SECRET` | 注意:`两个 Worker 共用` | `u0zcgbzN4vYJpEmzs0yR` | HMAC 签名密钥（必须一致） |
+| `VERIFY_SECRET` | 两个 Worker 共用 | `u0zcgbzN4vYJpEmzs0yR` | HMAC 签名密钥（必须一致） |
+
+| 环境变量 | 主 Bot Worker | 示例值 | 说明 |
+|----------|-------------|--------|------|
 | `BOT_TOKEN_ENV` | 主 Bot Worker | `123456:ABC...` | Telegram Bot Token |
 | `GROUP_ID_ENV` | 主 Bot Worker | `-1001234567890` | 接收消息的群组 ID |
 | `MAX_MESSAGES_PER_MINUTE_ENV` | 主 Bot Worker | `40` | 每分钟消息速率限制 |
 | `VERIFY_URL` | 主 Bot Worker | `https://verify.example.com` | 验证页面的完整 URL |
-| `VERIFY_SECRET` | 主 Bot Worker | 同上`两个 Worker 共用` | 与验证页面 Worker 相同 |
+| `VERIFY_SECRET` | 两个 Worker 共用 | `u0zcgbzN4vYJpEmzs0yR` | 与验证页面 Worker 相同（必须一致） |
 | `D1` | 主 Bot Worker (绑定) | - | D1 数据库绑定名称 |
 
 > **注意**：`VERIFY_SECRET` 在两个 Worker 中必须完全一致，否则签名验证失败。
