@@ -2,23 +2,35 @@
 
 ## 所需变量速查
 
-| 环境变量 | captcha.js | 示例值 | 说明 |
-|----------|-------------|--------|------|
-| `CAPTCHA_SECRET_KEY` | 验证页面 Worker | `0x3...FF` | Cloudflare Turnstile 后端密钥 |
-| `CAPTCHA_SITE_KEY` | 验证页面 Worker | `3x0...FF` | Cloudflare Turnstile 前端密钥 |
-| `BOT_USERNAME` | 验证页面 Worker | `my_cool_bot` | Bot 用户名 不带 @ |
-| `VERIFY_SECRET` | 两个 Worker 共用 | `u0zcgbzN4vYJpEmzs0yR` | HMAC 签名密钥（必须一致） |
+### 1️⃣ 验证页面 Worker (`captcha.js`) 需要的变量
 
-| 环境变量 | tg_worker.js | 示例值 | 说明 |
-|----------|-------------|--------|------|
-| `BOT_TOKEN_ENV` | 主 Bot Worker | `123456:ABC...` | Telegram Bot Token |
-| `GROUP_ID_ENV` | 主 Bot Worker | `-1001234567890` | 接收消息的群组 ID |
-| `MAX_MESSAGES_PER_MINUTE_ENV` | 主 Bot Worker | `40` | 每分钟消息速率限制 |
-| `VERIFY_URL` | 主 Bot Worker | `https://verify.example.com` | 验证页面的完整 URL |
-| `VERIFY_SECRET` | 两个 Worker 共用 | `u0zcgbzN4vYJpEmzs0yR` | 与验证页面 Worker 相同（必须一致） |
-| `D1` | 主 Bot Worker (绑定) | - | D1 数据库绑定名称 |
+| 环境变量                 | 用途             | 示例                     | 简单说明                               |
+| -------------------- | -------------- | ---------------------- | ---------------------------------- |
+| `CAPTCHA_SECRET_KEY` | 后端验证 Turnstile | `0x3...FF`             | 用来验证用户是否通过了验证码，秘密不要泄露              |
+| `CAPTCHA_SITE_KEY`   | 前端展示 Turnstile | `3x0...FF`             | 网页上显示验证码需要用的 Key                   |
+| `BOT_USERNAME`       | 识别你的 Bot       | `my_cool_bot`          | 你的 Telegram 机器人名字（不带 `@`）          |
+| `VERIFY_SECRET`      | 签名验证           | `u0zcgbzN4vYJpEmzs0yR` | 两个 Worker 共用的密钥，用来防止数据被篡改 **必须一致** |
 
-> **注意**：`VERIFY_SECRET` 在两个 Worker 中必须完全一致，否则签名验证失败。
+---
+
+### 2️⃣ 主 Bot Worker (`tg_worker.js`) 需要的变量
+
+| 环境变量                          | 用途          | 示例                           | 简单说明                  |
+| ----------------------------- | ----------- | ---------------------------- | --------------------- |
+| `BOT_TOKEN_ENV`               | 连接 Telegram | `123456:ABC...`              | 你机器人的 Token，必须正确才能发消息 |
+| `GROUP_ID_ENV`                | 消息接收群       | `-1001234567890`             | 消息会发到这个群里             |
+| `MAX_MESSAGES_PER_MINUTE_ENV` | 防刷限制        | `40`                         | 每分钟最多发多少条消息，防止被封      |
+| `VERIFY_URL`                  | 验证页面地址      | `https://verify.example.com` | 用户点链接去验证的网页           |
+| `VERIFY_SECRET`               | 签名验证        | `u0zcgbzN4vYJpEmzs0yR`       | 同 `captcha.js`，两边必须一致 |
+| `D1`                          | 数据库绑定       | -                            | 可选，用于存储用户验证信息         |
+
+---
+
+✅ **重点提示**
+
+* `VERIFY_SECRET` **必须两边完全一样**，否则验证会失败。
+* `CAPTCHA_SECRET_KEY` 是 **非常敏感的密钥**，不要泄露给别人。
+* `BOT_USERNAME` 不带 `@`，填错可能导致消息发送失败。
 
 ---
 
