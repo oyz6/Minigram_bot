@@ -1,4 +1,4 @@
-const htmlhead = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Captcha verify</title><script src="https://telegram.org/js/telegram-web-app.js"></script><style>body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto;background:linear-gradient(135deg,#f0f4ff 0%,#e8eeff 100%);display:flex;align-items:center;justify-content:center;min-height:100vh;}form{width:100%;max-width:420px;background:#fff;border:1px solid #e8eaf0;border-radius:14px;padding:28px;box-shadow:0 20px 40px rgba(0,0,0,.15);}form h2{margin:0 0 14px;font-size:1.75rem;font-weight:700;text-align:center;}.field{margin-bottom:14px;}#status{text-align:center;font-size:1rem;color:#6b7280;margin-top:14px;}#codeDisplay{width:100%;padding:12px 14px;font-size:0.9rem;border-radius:10px;border:1px solid #e5e7eb;background:#f8f9fb;color:#374151;outline:none;display:none;word-break:break-all;}.copy-btn{width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;cursor:pointer;background:#22c55e;color:#fff;margin-top:10px;display:none;}.copy-btn:hover{background:#16a34a}.send-btn{width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;cursor:pointer;background:#6366f1;color:#fff;margin-top:10px;display:none;}.send-btn:hover{background:#4f46e5}</style></head><body>`;
+const htmlhead = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Captcha verify</title><script src="https://telegram.org/js/telegram-web-app.js"></script><style>body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto;background:linear-gradient(135deg,#f0f4ff 0%,#e8eeff 100%);display:flex;align-items:center;justify-content:center;min-height:100vh;}form{width:100%;max-width:420px;background:#fff;border:1px solid #e8eaf0;border-radius:14px;padding:28px;box-shadow:0 20px 40px rgba(0,0,0,.15);}form h2{margin:0 0 14px;font-size:1.75rem;font-weight:700;text-align:center;}.field{margin-bottom:14px;}#status{text-align:center;font-size:1rem;color:#6b7280;margin-top:14px;}#codeDisplay{width:100%;padding:12px 14px;font-size:0.9rem;border-radius:10px;border:1px solid #e5e7eb;background:#f8f9fb;color:#374151;outline:none;display:none;word-break:break-all;}.copy-btn{width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;cursor:pointer;background:#22c55e;color:#fff;margin-top:10px;display:none;}.copy-btn:hover{background:#16a34a}.send-btn{width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;cursor:pointer;background:#6366f1;color:#fff;margin-top:10px;display:none;}.send-btn:hover{background:#4f46e5}.open-bot-btn{display:none;width:100%;padding:12px;font-size:1rem;border-radius:10px;border:none;cursor:pointer;background:#3b82f6;color:#fff;margin-top:10px;text-decoration:none;text-align:center;}.open-bot-btn:hover{background:#2563eb}</style></head><body>`;
 
 async function HMac_sum(message, key) {
   const enc = new TextEncoder();
@@ -88,14 +88,27 @@ function handleGet(request, env) {
   }
 
   let eToken = encodeURIComponent(token);
+  const botUsername = env.BOT_USERNAME || '';
 
-  let body = htmlhead + `<form id="vform" aria-label="Token Login"><h2>人机验证</h2><div class="field"><input type="hidden" id="token" name="token" value="${eToken}"></div><div class="field"><div class="cf-turnstile" data-sitekey="${env.CAPTCHA_SITE_KEY}" data-theme="light" data-callback="onTurnstileSuccess"></div></div><p id="status">请完成上方验证...</p><input type="text" id="codeDisplay" readonly aria-label="验证码"><button type="button" class="send-btn" id="sendBtn" onclick="sendToBot()">发送验证码到 Bot</button><button type="button" class="copy-btn" id="copyBtn" onclick="copyCode()">复制验证码</button></form>
+  let body = htmlhead + `<form id="vform" aria-label="Token Login"><h2>人机验证</h2><div class="field"><input type="hidden" id="token" name="token" value="${eToken}"></div><div class="field"><div class="cf-turnstile" data-sitekey="${env.CAPTCHA_SITE_KEY}" data-theme="light" data-callback="onTurnstileSuccess"></div></div><p id="status">请完成上方验证...</p><input type="text" id="codeDisplay" readonly aria-label="验证码"><button type="button" class="send-btn" id="sendBtn" onclick="sendToBot()">发送验证码到 Bot</button><button type="button" class="copy-btn" id="copyBtn" onclick="copyCode()">复制验证码</button><a class="open-bot-btn" id="openBotBtn" href="#" target="_blank" rel="noopener">打开 Bot 对话粘贴发送</a></form>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" defer></script>
 <script>
 let verifyCode = '';
-const isTgWebApp = !!(window.Telegram && window.Telegram.WebApp);
+const botUsername = '${botUsername}';
 
-if (isTgWebApp) {
+// 检测是否在 Telegram WebApp 环境中
+// WebApp 打开时 Telegram 会注入 initData 或在 hash 中包含 tgWebAppData
+const isTgWebApp = (function() {
+  if (window.location.hash.indexOf('tgWebAppData') !== -1) return true;
+  if (window.Telegram && window.Telegram.WebApp) {
+    const wd = window.Telegram.WebApp;
+    if (wd.initData && wd.initData.length > 0) return true;
+    if (wd.platform && wd.platform !== 'unknown') return true;
+  }
+  return false;
+})();
+
+if (isTgWebApp && window.Telegram && window.Telegram.WebApp) {
   window.Telegram.WebApp.ready();
   window.Telegram.WebApp.expand();
 }
@@ -118,35 +131,45 @@ function onTurnstileSuccess(turnstileToken) {
         try {
           window.Telegram.WebApp.sendData(verifyCode);
           document.getElementById('status').textContent = '✅ 验证成功，窗口即将关闭...';
-          setTimeout(() => { try { window.Telegram.WebApp.close(); } catch(e){} }, 1000);
+          setTimeout(function() { try { window.Telegram.WebApp.close(); } catch(e){} }, 1000);
         } catch(e) {
-          document.getElementById('status').textContent = '✅ 验证成功，请点击下方按钮发送验证码';
-          document.getElementById('sendBtn').style.display = 'block';
-          document.getElementById('codeDisplay').style.display = 'block';
-          document.getElementById('codeDisplay').value = verifyCode;
-          document.getElementById('copyBtn').style.display = 'block';
+          showFallbackUI(true);
         }
       } else {
-        document.getElementById('status').textContent = '✅ 验证成功，请复制下方验证码发送给 Bot';
-        document.getElementById('codeDisplay').style.display = 'block';
-        document.getElementById('codeDisplay').value = verifyCode;
-        document.getElementById('copyBtn').style.display = 'block';
+        showFallbackUI(false);
       }
     } else {
       document.getElementById('status').textContent = '❌ ' + (data.error || '验证失败，请刷新重试');
     }
   })
-  .catch(() => {
+  .catch(function() {
     document.getElementById('status').textContent = '❌ 网络错误，请重试';
   });
 }
 
+function showFallbackUI(isWebAppFallback) {
+  if (isWebAppFallback) {
+    document.getElementById('status').textContent = '✅ 验证成功，请点击下方按钮发送验证码';
+    document.getElementById('sendBtn').style.display = 'block';
+  } else {
+    document.getElementById('status').textContent = '✅ 验证成功，请复制验证码发送给 Bot';
+  }
+  document.getElementById('codeDisplay').style.display = 'block';
+  document.getElementById('codeDisplay').value = verifyCode;
+  document.getElementById('copyBtn').style.display = 'block';
+  if (!isWebAppFallback && botUsername) {
+    var botLink = document.getElementById('openBotBtn');
+    botLink.href = 'https://t.me/' + botUsername;
+    botLink.style.display = 'block';
+  }
+}
+
 function sendToBot() {
-  if (isTgWebApp && verifyCode) {
+  if (window.Telegram && window.Telegram.WebApp && verifyCode) {
     try {
       window.Telegram.WebApp.sendData(verifyCode);
       document.getElementById('status').textContent = '✅ 已发送，窗口即将关闭...';
-      setTimeout(() => { try { window.Telegram.WebApp.close(); } catch(e){} }, 1000);
+      setTimeout(function() { try { window.Telegram.WebApp.close(); } catch(e){} }, 1000);
     } catch(e) {
       document.getElementById('status').textContent = '发送失败，请手动复制验证码发送给 Bot';
     }
@@ -154,9 +177,9 @@ function sendToBot() {
 }
 
 function copyCode() {
-  navigator.clipboard.writeText(verifyCode).then(() => {
+  navigator.clipboard.writeText(verifyCode).then(function() {
     document.getElementById('copyBtn').textContent = '已复制 ✅';
-    setTimeout(() => { document.getElementById('copyBtn').textContent = '复制验证码'; }, 1500);
+    setTimeout(function() { document.getElementById('copyBtn').textContent = '复制验证码'; }, 1500);
   });
 }
 </script></body></html>`;
@@ -166,7 +189,7 @@ function copyCode() {
   });
 }
 
-// Worker 入口
+// Cloudflare Workers 入口
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'POST') {
