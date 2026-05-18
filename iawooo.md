@@ -6,7 +6,7 @@
 
 以下是 CFTeleTrans 项目的截图： 
 
-![CFTeleTrans 截图](https://awtc.pp.ua/ctt.png)
+![CFTeleTrans 截图](https://github.com/iawooo/ctt/blob/main/picture/60e43fcf63e7c49148c2df7caff7d176.png?raw=true)
 
 ## 特点与亮点
 
@@ -47,7 +47,7 @@
    - 在Telegram中找到`@BotFather`，发送`/newbot`创建新机器人。
    - 按照提示设置机器人名称和用户名，获取Bot Token（例如`123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`）。
    - 发送`/setinline`切换内联模式。
-![CFTeleTrans 截图](picture/0903f76329b80fc231893abde40b9ab8.png)
+![CFTeleTrans 截图](https://github.com/iawooo/ctt/blob/main/picture/0903f76329b80fc231893abde40b9ab8.png?raw=true)
 
 2. **创建后台群组**：
    - 创建一个Telegram群组（按需设置是否公开），
@@ -108,7 +108,7 @@
 3. 连接GitHub部署（或者下载本项目zip部署）
 
 #### 步骤 2：填写变量后重试部署
-![变量截图](picture/30d4b767f1c9a050999b8642f164c90c.png)
+![变量截图](https://github.com/iawooo/ctt/blob/main/picture/30d4b767f1c9a050999b8642f164c90c.png?raw=true)
 
 
 ## 灵感来源
